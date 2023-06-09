@@ -1,0 +1,6 @@
+# data
+*.pkl
+*.pickle
+__pycache__/
+PPO/
+gym_render/
