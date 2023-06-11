@@ -8,6 +8,8 @@ from gym_env import CrowdEnv
 from GAIL import GAIL
 import time
 
+
+
 def draw_result(x, y, metric_name):
     plt.cla()
     plt.plot(x, y)
@@ -22,22 +24,16 @@ def compute_time(start_time, end_time):
     elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
     return elapsed_mins, elapsed_secs
 
-def train_socialgail(args):
-    ######### Hyperparameters #########
-    env_name = "CrowdEnv"
-    max_timesteps = 800        # max time steps in one episode
-    total_steps = 1000000 # int(1.6e6) 800000
-    training_interval = 2048
-    n_iter = 10                # updates per epoch
-    batch_size = 64            # num of transitions sampled from expert
-    action_std_decay_rate = 0.05        # linearly decay action_std (action_std = action_std - action_std_decay_rate)
-    min_action_std = 0.1                # minimum action_std (stop decay after action_std <= min_action_std)
-    action_std_decay_freq = int(2.5e5)  # action_std decay frequency (in num timesteps)
-    ###################################
 
+
+
+
+def train_socialgail(args):
     env = CrowdEnv(args)
-    state_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.shape[0]
+    # state_dim = env.observation_space.shape[0]
+    # action_dim = env.action_space.shape[0]
+    state_dim = 52
+    action_dim = 2
     agent = GAIL(args, state_dim, action_dim)
 
     # graph logging variables:
@@ -60,7 +56,7 @@ def train_socialgail(args):
 
     start = time.time()
 
-    while(steps < total_steps):
+    while(steps < args.total_steps):
         steps += 1
         t += 1
         # evaluate in environment
@@ -76,7 +72,7 @@ def train_socialgail(args):
         state=next_state
         total_reward += reward
 
-        if done or t > max_timesteps:
+        if done or t > args.max_timesteps:
             t = 0
             n_eposides += 1
             frechet_disance += env.compute_Frechet_Distance()
@@ -85,10 +81,10 @@ def train_socialgail(args):
 
             state = env.reset()
 
-        if steps%training_interval==0:
+        if steps%args.training_interval==0:
             epoch += 1
             # update agent n_iter times
-            agent.update_online(n_iter, batch_size)
+            agent.update_online(args.n_iter, args.batch_size)
                 
             avg_reward = int(total_reward/n_eposides)
             avg_frechet_distance = frechet_disance/n_eposides
@@ -111,8 +107,8 @@ def train_socialgail(args):
             n_eposides = 0
         
         # if continuous action space; then decay action std of ouput action distribution
-            if steps % action_std_decay_freq == 0:
-                agent.decay_action_std(action_std_decay_rate, min_action_std)
+            if steps % args.action_std_decay_freq == 0:
+                agent.decay_action_std(args.action_std_decay_rate, args.min_action_std)
 
     end = time.time()
     mins, secs = compute_time(start, end)
@@ -125,15 +121,34 @@ def train_socialgail(args):
     draw_result(epochs, dtw_list, 'DTW')
 
 
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='args for SocialGAIL')
+    parser.add_argument('--env_name',default="CrowdEnv")
     parser.add_argument('--dataset_path',default="./datasets/gc_interpolated_trajectory.pkl")
     parser.add_argument('--frame_interval',default=10)
     parser.add_argument('--time_interval',default=0.4)
     parser.add_argument('--regions',default=16)
     parser.add_argument('--radius',default=6.0)
-    parser.add_argument('--map_size_bound',default=[-10,40,-20,50]) # [low_x, high_x, low_y, high_y] (int)
+    parser.add_argument('--map_size_bound',default=[-10,40,-20,50])         # [low_x, high_x, low_y, high_y] (int)
     parser.add_argument('--with_last_speed',default=True)
+    parser.add_argument('--observation_type',default='graph')               # 'radar' / 'graph'
+    parser.add_argument('--graph_obs_past_len',default=5)
+    parser.add_argument('--padd_to_number',default=60)                      # the max number of people in radius to form a mini-batch
+    parser.add_argument('--graph_feature_len',default=5)
+    parser.add_argument('--ouput_len',default=2)
+    # training hyperparamater
+    parser.add_argument('--max_timesteps',default=800)                      # max time steps in one episode
+    parser.add_argument('--total_steps',default=1000000)                    # int(1.6e6) 800000
+    parser.add_argument('--n_iter',default=10)                              # updates per epoch
+    parser.add_argument('--batch_size',default=64)                          # num of transitions sampled from expert
+    parser.add_argument('--action_std_decay_rate',default=0.05)             # linearly decay action_std (action_std = action_std - action_std_decay_rate)
+    parser.add_argument('--min_action_std',default=0.1)                     # minimum action_std (stop decay after action_std <= min_action_std)
+    parser.add_argument('--action_std_decay_freq',default=int(2.5e5))       # action_std decay frequency (in num timesteps)
     args = parser.parse_args()
+
+
 
     train_socialgail(args)

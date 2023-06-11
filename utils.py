@@ -3,10 +3,13 @@ import pickle
 
 class ExpertTraj:
     def __init__(self, args):
-        if args.with_last_speed:
-            expert_dir = 'goal_lastSpeed/'
+        if args.observation_type == 'graph':
+            expert_dir = 'graph/'
         else:
-            expert_dir = 'goal/'
+            if args.with_last_speed:
+                expert_dir = 'goal_lastSpeed/'
+            else:
+                expert_dir = 'goal/'
         with open('./expert_traj/'+expert_dir+'states.pkl','rb') as f:
             self.exp_states = pickle.load(f)
         with open('./expert_traj/'+expert_dir+'actions.pkl','rb') as f:
@@ -20,8 +23,11 @@ class ExpertTraj:
         for i in indexes:
             s = self.exp_states[i]
             a = self.exp_actions[i]
-            state.append(np.array(s, copy=False))
-            action.append(np.array(a, copy=False))
-        return np.array(state), np.array(action)
+            state.append(s)
+            action.append(a)
+        return state, action
+        #     state.append(np.array(s, copy=False))
+        #     action.append(np.array(a, copy=False))
+        # return np.array(state), np.array(action)
 
 

@@ -6,6 +6,7 @@ import numpy as np
 from PPO import PPO
 import random
 import math
+from GNN_model.vectornet import HGNN
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -32,21 +33,71 @@ class Discriminator(nn.Module):
         x = -F.logsigmoid(-self.l3(x))
         return x
     
+
+
 class GAIL(PPO):
-    def __init__(self, args, state_dim, action_dim):
-        super().__init__(state_dim=state_dim, action_dim=action_dim, lr_actor=0.0003, \
+    def __init__(self, args):
+        super().__init__(state_dim=args.state_dim, action_dim=args.action_dim, lr_actor=0.0003, \
                        lr_critic=0.001, gamma=0.99, K_epochs=80, eps_clip=0.2, has_continuous_action_space=True, action_std_init=0.6, device=device)
-                       # lr_critic=0.001
         
-        self.discriminator = Discriminator(state_dim, action_dim).to(device)
+        if args.observation_type == 'graph':
+            self.discriminator = HGNN(args.graph_feature_len, args.output_len, final_mlp_hidden_width=128).to(device)
+        else:
+            self.discriminator = Discriminator(args.state_dim, args.action_dim).to(device)
+
         self.optim_discriminator = torch.optim.Adam(self.discriminator.parameters(), lr=0.0002)
         
         self.expert = ExpertTraj(args)
         
         self.loss_fn = nn.BCELoss()
+
             
     # 在线更新
     def update_online(self, n_iter, batch_size):
+        #######################
+        # update discriminator
+        #######################
+        for i in range(n_iter):
+            ## sample expert transitions
+            exp_state, exp_action = self.expert.sample(batch_size)
+            exp_state = torch.FloatTensor(exp_state).to(device)
+            exp_action = torch.FloatTensor(exp_action).to(device)
+            
+            ## sample expert states for actor
+            state, action = self.memory_sample(self.buffer.states, self.buffer.actions, batch_size)
+            state = torch.squeeze(torch.stack(state, dim=0)).detach().to(self.device)
+            action = torch.squeeze(torch.stack(action, dim=0)).detach().to(self.device)
+            
+            self.optim_discriminator.zero_grad()
+            
+            # label tensors
+            exp_label= torch.full((batch_size,1), 1, dtype=torch.float, device=device)
+            policy_label = torch.full((batch_size,1), 0, dtype=torch.float, device=device)
+            
+            # with expert transitions
+            prob_exp = self.discriminator(exp_state, exp_action)
+            loss = self.loss_fn(prob_exp, exp_label)
+            
+            # with policy transitions
+            prob_policy = self.discriminator(state, action)
+            loss += self.loss_fn(prob_policy, policy_label)
+            
+            # take gradient step
+            loss.backward()
+            self.optim_discriminator.step()
+            
+        ################
+        # update policy
+        ## ##############
+        reward_state = torch.squeeze(torch.stack(self.buffer.states, dim=0)).detach().to(self.device)
+        reward_action = torch.squeeze(torch.stack(self.buffer.actions, dim=0)).detach().to(self.device)
+        # rewards = torch.log(self.discriminator(reward_state, reward_action))
+        rewards = self.discriminator.score(reward_state, reward_action)
+        self.buffer.rewards = rewards.detach().cpu().numpy().flatten().tolist()
+
+        self.update_ppo()
+
+    def update_online_graph(self, n_iter, batch_size):
         #######################
         # update discriminator
         #######################

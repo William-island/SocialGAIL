@@ -10,8 +10,10 @@ import math
 import os
 from statistics import mean
 from scipy.spatial.distance import euclidean
+from GNN_models.graph_data import GraphData
+import torch
 
-class CrowdEnv(gym.Env):
+class CrowdEnv():  # can extend from gym.Env
     def __init__(self, args):
         super(CrowdEnv, self).__init__()
 
@@ -26,6 +28,8 @@ class CrowdEnv(gym.Env):
         self.observation_type = args.observation_type # 'radar' / 'graph'
         if self.observation_type == 'graph':
             self.graph_obs_past_len = args.graph_obs_past_len
+            self.padd_to_number = args.padd_to_number
+            self.graph_feature_len = args.grahp_feature_len
 
         self.agent_id = 1
         self.frame_number = 0
@@ -37,12 +41,12 @@ class CrowdEnv(gym.Env):
         self.new_traj = [self.current_position]
         self.old_traj = np.array(self.trajectorys[self.agent_id])[:,0:2]
 
-        # gym action space & observation sapce
-        self.action_space = gym.spaces.Box(low=-10, high=10, shape=(2,), dtype=np.float32)
-        if self.with_last_speed:
-            self.observation_space = gym.spaces.Box(low=-400, high=400, shape=(3*self.regions+2+2,), dtype=np.float64)
-        else:
-            self.observation_space = gym.spaces.Box(low=-400, high=400, shape=(3*self.regions+2,), dtype=np.float64)
+        ## gym action space & observation sapce
+        # self.action_space = gym.spaces.Box(low=-10, high=10, shape=(2,), dtype=np.float32)
+        # if self.with_last_speed:
+        #     self.observation_space = gym.spaces.Box(low=-400, high=400, shape=(3*self.regions+2+2,), dtype=np.float64)
+        # else:
+        #     self.observation_space = gym.spaces.Box(low=-400, high=400, shape=(3*self.regions+2,), dtype=np.float64)
 
     def reset(self):
         # decide the agent of current eposide and start frame
@@ -359,7 +363,94 @@ class CrowdEnv(gym.Env):
         return np.array(state)
 
     def _get_graph_observation(self):
-        pass
+        X=[]
+        cluster=[]
+        edge_index=[[],[]]
+
+        # goal vector
+        dx, dy= self.goal_data[self.agent_id][0]-self.current_position[0], self.goal_data[self.agent_id][1]-self.current_position[1]
+        if dx!=0 or dy!=0: # 归一化
+            vx,vy=dx/math.sqrt(dx**2+dy**2),dy/math.sqrt(dx**2+dy**2)
+            goal=[vx,vy]
+        else:
+            goal=[0,0]
+
+        # 添加自身上一时刻速度
+        if len(self.new_traj) == 1:
+            last_speed = [0, 0]
+        else:
+            last_speed = (self.current_position - self.new_traj[-2])/self.time_interval
+
+        # agent当前位置
+        x1=self.current_position[0]
+        y1=self.current_position[1]
+
+        # Insert target person
+        if len(self.new_traj) == 1:
+            last_x = 0
+            last_y = 0
+        else:
+            last_x = self.new_traj[-2][0]-x1
+            last_y = self.new_traj[-2][1]-y1
+        X.append([last_x, last_y, 0, 0, 0])
+        sum_ped = 0
+        cluster.append(sum_ped)
+        sum_ped += 1
+        # Insert other person
+        for other,ovalue in self.frame_data[self.frame_number].items():
+            if other!=self.agent_id:
+                x2=ovalue[0]
+                y2=ovalue[1]
+                dis=math.sqrt((x1-x2)**2+(y1-y2)**2)
+                if dis<self.radius:  # 只考虑当前半径范围内的行人
+                    # 每个行人最多取past_len个历史点向量
+                    frame_id=self.frame_number
+                    len_nodes=0
+                    while_flag=0   # 一个不会让聚类编号凭空增加的flag
+                    while(frame_id>=self.frame_interval and len_nodes<self.graph_obs_past_len and  (other in self.frame_data[frame_id-self.frame_interval])):
+                        start_x=self.frame_data[frame_id-self.frame_interval][other][0]-x1
+                        start_y=self.frame_data[frame_id-self.frame_interval][other][1]-y1
+                        end_x=self.frame_data[frame_id][other][0]-x1
+                        end_y=self.frame_data[frame_id][other][1]-y1
+
+                        # 计算当前历史向量终点的相对agent的前后,前为1，后为0
+                        front_flag=1
+                        if len(self.new_traj) == 1:
+                            last_v = goal
+                        else:
+                            last_v = last_speed
+                        ang=self.clockwise_angle(last_v, [end_x,end_y])
+                        if ang>=90 and ang<=270:
+                            front_flag=0
+
+                        X.append([start_x,start_y,end_x,end_y,front_flag])
+                        cluster.append(sum_ped)
+                        while_flag=1
+
+                        if len_nodes>0:
+                            link_start=len(X)-1
+                            edge_index[0].append(link_start)
+                            edge_index[1].append(link_start-1)
+
+                        len_nodes += 1
+                        frame_id -= self.frame_interval
+                    if while_flag == 1:
+                        sum_ped += 1
+        assert len(cluster)!=0
+        X = np.array(X)
+        cluster = np.array(cluster)
+        X = np.vstack([X, np.zeros((self.padd_to_number - cluster.max()-1, self.graph_feature_len), dtype=X .dtype)])
+        cluster = np.hstack([cluster, np.arange(cluster.max()+1, self.padd_to_number)])
+        g_data = GraphData(
+            x=torch.tensor(X,dtype=torch.float32),
+            cluster=torch.tensor(cluster,dtype=torch.int64),
+            edge_index=torch.tensor(edge_index,dtype=torch.int64),
+            valid_len=torch.tensor([cluster.max()+1]),
+            time_step_len=torch.tensor([self.padd_to_number]),
+            goal=torch.tensor(goal,dtype=torch.float32),
+            last_speed=torch.tensor(last_speed,dtype=torch.float32)
+        )
+        return g_data
 
     
     def _update_frame_number(self):
@@ -375,6 +466,17 @@ class CrowdEnv(gym.Env):
         theta = theta if theta>0 else 2*np.pi+theta
         theta = theta*180/np.pi
         return theta%360
+    
+    # clockwise angle from v1 to v2
+    def _clockwise_angle(self,v1, v2):
+        x1,y1 = v1
+        x2,y2 = v2
+        dot = x1*x2+y1*y2
+        det = x1*y2-y1*x2
+        theta = np.arctan2(det, dot)
+        theta = theta if theta>0 else 2*np.pi+theta
+        theta = theta*180/np.pi
+        return theta
     
     def _frame_continues_check(self):
         # check if trajectorys is continues
