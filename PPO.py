@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal
 from torch.distributions import Categorical
+from GNN_models.vectornet import HGNN, HGNN_Disrim
 
 
 ################################## PPO Policy ##################################
@@ -24,7 +25,7 @@ class RolloutBuffer:
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, state_dim, action_dim, has_continuous_action_space, action_std_init, device):
+    def __init__(self, args, action_dim, has_continuous_action_space, action_std_init, device):
         super(ActorCritic, self).__init__()
 
         self.has_continuous_action_space = has_continuous_action_space
@@ -35,17 +36,18 @@ class ActorCritic(nn.Module):
             self.action_var = torch.full((action_dim,), action_std_init * action_std_init).to(self.device)
         # actor
         if has_continuous_action_space :
-            self.actor = nn.Sequential(
-                            nn.Linear(state_dim, 256),
-                            nn.Tanh(),
-                            nn.Linear(256, 256),
-                            nn.Tanh(),
-                            nn.Linear(256, action_dim),
-                            nn.Tanh()
-                        )
+            # self.actor = nn.Sequential(
+            #                 nn.Linear(state_dim, 256),
+            #                 nn.Tanh(),
+            #                 nn.Linear(256, 256),
+            #                 nn.Tanh(),
+            #                 nn.Linear(256, action_dim),
+            #                 nn.Tanh()
+            #             )
+            self.actor = HGNN(args.graph_feature_len, args.output_len, final_mlp_hidden_width=128)
         else:
             self.actor = nn.Sequential(
-                            nn.Linear(state_dim, 256),
+                            nn.Linear(args.state_dim, 256),
                             nn.Tanh(),
                             nn.Linear(256, 256),
                             nn.Tanh(),
@@ -53,13 +55,14 @@ class ActorCritic(nn.Module):
                             nn.Softmax(dim=-1)
                         )
         # critic
-        self.critic = nn.Sequential(
-                        nn.Linear(state_dim, 256),
-                        nn.Tanh(),
-                        nn.Linear(256, 256),
-                        nn.Tanh(),
-                        nn.Linear(256, 1)
-                    )
+        # self.critic = nn.Sequential(
+        #                 nn.Linear(state_dim, 256),
+        #                 nn.Tanh(),
+        #                 nn.Linear(256, 256),
+        #                 nn.Tanh(),
+        #                 nn.Linear(256, 1)
+        #             )
+        self.actor = HGNN(args.graph_feature_len, 1, final_mlp_hidden_width=128)
         
     def set_action_std(self, new_action_std):
         if self.has_continuous_action_space:

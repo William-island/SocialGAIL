@@ -32,9 +32,7 @@ def train_socialgail(args):
     env = CrowdEnv(args)
     # state_dim = env.observation_space.shape[0]
     # action_dim = env.action_space.shape[0]
-    state_dim = 52
-    action_dim = 2
-    agent = GAIL(args, state_dim, action_dim)
+    agent = GAIL(args)
 
     # graph logging variables:
     epochs = []

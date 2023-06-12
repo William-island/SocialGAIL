@@ -29,7 +29,7 @@ class CrowdEnv():  # can extend from gym.Env
         if self.observation_type == 'graph':
             self.graph_obs_past_len = args.graph_obs_past_len
             self.padd_to_number = args.padd_to_number
-            self.graph_feature_len = args.grahp_feature_len
+            self.graph_feature_len = args.graph_feature_len
 
         self.agent_id = 1
         self.frame_number = 0

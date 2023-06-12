@@ -6,7 +6,8 @@ import numpy as np
 from PPO import PPO
 import random
 import math
-from GNN_model.vectornet import HGNN
+from GNN_models.vectornet import HGNN, HGNN_Disrim
+from torch_geometric.data import Batch
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -34,14 +35,31 @@ class Discriminator(nn.Module):
         return x
     
 
+class GraphDiscriminator(nn.Module):
+    def __init__(self, in_channels, action_dim, final_mlp_hidden_width=128):
+        super(Discriminator, self).__init__()
+        self.graph_model = HGNN_Disrim(in_channels, action_dim, final_mlp_hidden_width=128)
+
+    def forward(self, state, action):
+        x = torch.sigmoid(self.graph_model(state, action))
+        return x
+    
+    def score(self, state, action):
+        x = -F.logsigmoid(-self.graph_model(state, action))
+        return x
+
+
+
+
+
 
 class GAIL(PPO):
     def __init__(self, args):
-        super().__init__(state_dim=args.state_dim, action_dim=args.action_dim, lr_actor=0.0003, \
+        super().__init__(args, action_dim=args.output_len, lr_actor=0.0003, \
                        lr_critic=0.001, gamma=0.99, K_epochs=80, eps_clip=0.2, has_continuous_action_space=True, action_std_init=0.6, device=device)
         
         if args.observation_type == 'graph':
-            self.discriminator = HGNN(args.graph_feature_len, args.output_len, final_mlp_hidden_width=128).to(device)
+            self.discriminator = GraphDiscriminator(args.graph_feature_len, args.output_len, final_mlp_hidden_width=128).to(device)
         else:
             self.discriminator = Discriminator(args.state_dim, args.action_dim).to(device)
 
@@ -104,13 +122,13 @@ class GAIL(PPO):
         for i in range(n_iter):
             ## sample expert transitions
             exp_state, exp_action = self.expert.sample(batch_size)
-            exp_state = torch.FloatTensor(exp_state).to(device)
+            exp_state = Batch.from_data_list(exp_state).to(device)
             exp_action = torch.FloatTensor(exp_action).to(device)
             
             ## sample expert states for actor
             state, action = self.memory_sample(self.buffer.states, self.buffer.actions, batch_size)
-            state = torch.squeeze(torch.stack(state, dim=0)).detach().to(self.device)
-            action = torch.squeeze(torch.stack(action, dim=0)).detach().to(self.device)
+            state = Batch.from_data_list(exp_state).to(device)
+            action = torch.FloatTensor(exp_action).to(device)
             
             self.optim_discriminator.zero_grad()
             
@@ -133,7 +151,7 @@ class GAIL(PPO):
         ################
         # update policy
         ## ##############
-        reward_state = torch.squeeze(torch.stack(self.buffer.states, dim=0)).detach().to(self.device)
+        reward_state = Batch.from_data_list(self.buffer.states).to(device)
         reward_action = torch.squeeze(torch.stack(self.buffer.actions, dim=0)).detach().to(self.device)
         # rewards = torch.log(self.discriminator(reward_state, reward_action))
         rewards = self.discriminator.score(reward_state, reward_action)
