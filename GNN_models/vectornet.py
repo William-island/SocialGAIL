@@ -57,7 +57,7 @@ class HGNN_Disrim(nn.Module):
         self.polyline_vec_shape = in_channels * (2 ** num_subgraph_layers)
         self.subgraph = SubGraph(in_channels, num_subgraph_layers, subgraph_width)
         self.self_atten_layer = SelfAttentionLayer(self.polyline_vec_shape, global_graph_width, need_scale=False)
-        self.traj_pred_mlp = FinalPredMLP(global_graph_width+self.goal_plus_lastSpeed_shape, out_channels, final_mlp_hidden_width)
+        self.traj_pred_mlp = FinalPredMLP(global_graph_width+self.goal_plus_lastSpeed_shape+self.action_dim, out_channels, final_mlp_hidden_width)
 
     def forward(self, state, action):
         """

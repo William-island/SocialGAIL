@@ -12,9 +12,10 @@ class ExpertTraj:
                 expert_dir = 'goal_lastSpeed/'
             else:
                 expert_dir = 'goal/'
-        with open('./expert_traj/'+expert_dir+'test_states.pkl','rb') as f:
+        print('Loading expert trajectories...')
+        with open('./expert_traj/'+expert_dir+'states.pkl','rb') as f:
             self.exp_states = pickle.load(f)
-        with open('./expert_traj/'+expert_dir+'test_actions.pkl','rb') as f:
+        with open('./expert_traj/'+expert_dir+'actions.pkl','rb') as f:
             self.exp_actions = pickle.load(f)
         self.n_transitions = len(self.exp_actions)
         print("now expert lens: {}".format(self.n_transitions))

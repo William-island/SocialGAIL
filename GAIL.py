@@ -127,8 +127,8 @@ class GAIL(PPO):
             
             ## sample expert states for actor
             state, action = self.memory_sample(self.buffer.states, self.buffer.actions, batch_size)
-            state = Batch.from_data_list(exp_state).to(device)
-            action = torch.FloatTensor(exp_action).to(device)
+            state = Batch.from_data_list(state).to(device)
+            action = torch.squeeze(torch.stack(action, dim=0)).detach().to(self.device)
             
             self.optim_discriminator.zero_grad()
             

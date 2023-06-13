@@ -25,6 +25,17 @@ def compute_time(start_time, end_time):
     elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
     return elapsed_mins, elapsed_secs
 
+class Logger():
+
+    def __init__(self, path):
+        self.path = path
+        with open(self.path, 'w') as f:
+            pass
+
+    def write_log(self,log):
+        with open(self.path, 'a') as f:
+            f.write(log+'\n')
+
 
 
 
@@ -55,6 +66,11 @@ def train_socialgail(args):
 
     start = time.time()
 
+    logger_all=Logger('log_all.txt')
+    logger_res=Logger('log.txt')
+
+    current_reward = 0
+
     while(steps < args.total_steps):
         steps += 1
         t += 1
@@ -74,9 +90,22 @@ def train_socialgail(args):
         if done or t > args.max_timesteps:
             t = 0
             n_eposides += 1
-            frechet_disance += env.compute_Frechet_Distance()
-            fde += env.compute_FDE()
-            dtw += env.compute_DTW()
+            # frechet_disance += env.compute_Frechet_Distance()
+            # fde += env.compute_FDE()
+            # dtw += env.compute_DTW()
+            fre = env.compute_Frechet_Distance()
+            fd = env.compute_FDE()
+            dt = env.compute_DTW()
+
+            frechet_disance += fre
+            fde += fd
+            dtw += dt
+            delta_reward = total_reward-current_reward
+            current_reward = total_reward
+            log_content="\t eposide: {}\t Reward: {}\tFrechet Distance: {:.2f}\t FDE: {:.2f}\t DTW: {:.2f}\t      ID: {}".format \
+                (n_eposides, delta_reward, fre, fd, dt, env.get_agent_id())
+            logger_all.write_log(log_content)
+            print(log_content)
 
             state = env.reset()
 
@@ -92,8 +121,11 @@ def train_socialgail(args):
             avg_frechet_distance = frechet_disance/n_eposides
             avg_fde = fde/n_eposides
             avg_dtw = dtw/n_eposides
-            print("Epoch: {}\tAvg Reward: {}\tFrechet Distance: {:.2f}\t  Avg FDE: {:.2f}\t  Avg DTW: {:.2f}\t  Num eposides: {}".format \
-                  (epoch, avg_reward, avg_frechet_distance, avg_fde, avg_dtw, n_eposides))
+            log_content="Epoch: {}\tAvg Reward: {}\tFrechet Distance: {:.2f}\t  Avg FDE: {:.2f}\t  Avg DTW: {:.2f}\t  Num eposides: {}".format \
+                  (epoch, avg_reward, avg_frechet_distance, avg_fde, avg_dtw, n_eposides)
+            logger_all.write_log(log_content)
+            logger_res.write_log(log_content)
+            print(log_content)
             
             # add data for graph
             epochs.append(epoch)
@@ -107,6 +139,8 @@ def train_socialgail(args):
             fde = 0
             dtw = 0
             n_eposides = 0
+
+            current_reward = 0
         
         # if continuous action space; then decay action std of ouput action distribution
             if steps % args.action_std_decay_freq == 0:
@@ -114,7 +148,10 @@ def train_socialgail(args):
 
     end = time.time()
     mins, secs = compute_time(start, end)
-    print(f'Total Time: {mins}m {secs}s')
+    log_content=f'Total Time: {mins}m {secs}s'
+    logger_all.write_log(log_content)
+    logger_res.write_log(log_content)
+    print(log_content)
     
     ## plot and save graph
     draw_result(epochs, rewards, 'reward')
