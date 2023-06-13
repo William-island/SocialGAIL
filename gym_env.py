@@ -10,7 +10,7 @@ import math
 import os
 from statistics import mean
 from scipy.spatial.distance import euclidean
-from GNN_models.graph_data import GraphData
+from GNN_models.graph_utils import GraphData
 import torch
 
 class CrowdEnv():  # can extend from gym.Env
@@ -419,7 +419,7 @@ class CrowdEnv():  # can extend from gym.Env
                             last_v = goal
                         else:
                             last_v = last_speed
-                        ang=self.clockwise_angle(last_v, [end_x,end_y])
+                        ang=self._clockwise_angle(last_v, [end_x,end_y])
                         if ang>=90 and ang<=270:
                             front_flag=0
 
@@ -439,13 +439,14 @@ class CrowdEnv():  # can extend from gym.Env
         assert len(cluster)!=0
         X = np.array(X)
         cluster = np.array(cluster)
-        X = np.vstack([X, np.zeros((self.padd_to_number - cluster.max()-1, self.graph_feature_len), dtype=X .dtype)])
+        valid_len = cluster.max()+1
+        X = np.vstack([X, np.zeros((self.padd_to_number - cluster.max()-1, self.graph_feature_len), dtype=X.dtype)])
         cluster = np.hstack([cluster, np.arange(cluster.max()+1, self.padd_to_number)])
         g_data = GraphData(
             x=torch.tensor(X,dtype=torch.float32),
             cluster=torch.tensor(cluster,dtype=torch.int64),
             edge_index=torch.tensor(edge_index,dtype=torch.int64),
-            valid_len=torch.tensor([cluster.max()+1]),
+            valid_len=torch.tensor([valid_len]),
             time_step_len=torch.tensor([self.padd_to_number]),
             goal=torch.tensor(goal,dtype=torch.float32),
             last_speed=torch.tensor(last_speed,dtype=torch.float32)

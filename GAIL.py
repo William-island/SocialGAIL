@@ -37,7 +37,7 @@ class Discriminator(nn.Module):
 
 class GraphDiscriminator(nn.Module):
     def __init__(self, in_channels, action_dim, final_mlp_hidden_width=128):
-        super(Discriminator, self).__init__()
+        super(GraphDiscriminator, self).__init__()
         self.graph_model = HGNN_Disrim(in_channels, action_dim, final_mlp_hidden_width=128)
 
     def forward(self, state, action):

@@ -1,3 +1,4 @@
+import copy
 from torch_geometric.data import Data
 import torch
 import torch.nn as nn
@@ -19,12 +20,13 @@ class SubGraph(nn.Module):
                 f'glp_{i}', GraphLayerProp(in_channels, hidden_unit))
             in_channels *= 2
 
-    def forward(self, sub_data):
+    def forward(self, data):
         """
         polyline vector set in torch_geometric.data.Data format
         args:
             sub_data (Data): [x, y, cluster, edge_index, valid_len]
         """
+        sub_data = copy.deepcopy(data)
         x, edge_index = sub_data.x, sub_data.edge_index
         for name, layer in self.layer_seq.named_modules():
             if isinstance(layer, GraphLayerProp):

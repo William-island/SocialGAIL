@@ -7,6 +7,7 @@ import argparse
 from gym_env import CrowdEnv
 from GAIL import GAIL
 import time
+from GNN_models.graph_utils import GraphData
 
 
 
@@ -82,7 +83,10 @@ def train_socialgail(args):
         if steps%args.training_interval==0:
             epoch += 1
             # update agent n_iter times
-            agent.update_online(args.n_iter, args.batch_size)
+            if args.observation_type == 'graph':
+                agent.update_online_graph(args.n_iter, args.batch_size)
+            else:
+                agent.update_online(args.n_iter, args.batch_size)
                 
             avg_reward = int(total_reward/n_eposides)
             avg_frechet_distance = frechet_disance/n_eposides
@@ -136,10 +140,11 @@ if __name__ == '__main__':
     parser.add_argument('--graph_obs_past_len',default=5)
     parser.add_argument('--padd_to_number',default=60)                      # the max number of people in radius to form a mini-batch
     parser.add_argument('--graph_feature_len',default=5)
-    parser.add_argument('--ouput_len',default=2)
+    parser.add_argument('--output_len',default=2)
     # training hyperparamater
     parser.add_argument('--max_timesteps',default=800)                      # max time steps in one episode
     parser.add_argument('--total_steps',default=1000000)                    # int(1.6e6) 800000
+    parser.add_argument('--training_interval',default=2048)                    # int(1.6e6) 800000
     parser.add_argument('--n_iter',default=10)                              # updates per epoch
     parser.add_argument('--batch_size',default=64)                          # num of transitions sampled from expert
     parser.add_argument('--action_std_decay_rate',default=0.05)             # linearly decay action_std (action_std = action_std - action_std_decay_rate)

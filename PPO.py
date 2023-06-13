@@ -44,7 +44,7 @@ class ActorCritic(nn.Module):
             #                 nn.Linear(256, action_dim),
             #                 nn.Tanh()
             #             )
-            self.actor = HGNN(args.graph_feature_len, args.output_len, final_mlp_hidden_width=128)
+            self.actor = HGNN(args.graph_feature_len, args.output_len, final_mlp_hidden_width=128).to(self.device)
         else:
             self.actor = nn.Sequential(
                             nn.Linear(args.state_dim, 256),
@@ -62,7 +62,7 @@ class ActorCritic(nn.Module):
         #                 nn.Tanh(),
         #                 nn.Linear(256, 1)
         #             )
-        self.actor = HGNN(args.graph_feature_len, 1, final_mlp_hidden_width=128)
+        self.critic = HGNN(args.graph_feature_len, 1, final_mlp_hidden_width=128).to(self.device)
         
     def set_action_std(self, new_action_std):
         if self.has_continuous_action_space:
@@ -169,7 +169,8 @@ class PPO:
 
         if self.has_continuous_action_space:
             with torch.no_grad():
-                state = torch.FloatTensor(state).to(self.device)
+                # state = torch.FloatTensor(state).to(self.device)
+                state = state.to(self.device)
                 action, action_logprob, state_val = self.policy_old.act(state)
 
             self.buffer.states.append(state)
