@@ -1,0 +1,5 @@
+# data
+*.pkl
+*.pickle
+__pycache__/
+*.pth
