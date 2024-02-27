@@ -20,7 +20,6 @@ class CrowdEnv(gym.Env):  # can extend from gym.Env
     def __init__(self, args, TT_type):
         super(CrowdEnv, self).__init__()
 
-        # GC_continue = {'trajectorys':trajectorys, 'overlap_noise':overlap_noise, 'train_ids':train_list, 'test_ids':test_list}
         with open(args.dataset_path, 'rb') as f:
             dataset = pickle.load(f)
 
@@ -28,7 +27,7 @@ class CrowdEnv(gym.Env):  # can extend from gym.Env
         self.frame_interval = args.frame_interval
 
         self.trajectorys, self.frame_data, self.start_data, self.goal_data = self._load_dataset(dataset['trajectorys'])
-        # self.overlap_noise = dataset['overlap_noise']
+        
         if TT_type == 'Train':
             self.test_flag = False
             self.people_ids = dataset['train_ids']
@@ -53,7 +52,7 @@ class CrowdEnv(gym.Env):  # can extend from gym.Env
         self.agent_radius = 0.25
         self.target_circle_width = 1.0
         self.new_width = self.target_circle_width
-        self.relaxed_steps = 80
+        self.relaxed_steps = 30
         self._max_episode_steps = 400
         print(f'Now env target circle width: {self.target_circle_width}')
         if not self.test_flag:
@@ -69,7 +68,6 @@ class CrowdEnv(gym.Env):  # can extend from gym.Env
         self.old_traj = np.array(self.trajectorys[self.agent_id])[:,0:2]
 
         self.collisions = 0
-        # self.companys = 0
 
         # gym action space & observation sapce
         self.action_space = gym.spaces.Box(low=-2, high=2, shape=(2,), dtype=np.float32)
@@ -467,7 +465,7 @@ class CrowdEnv(gym.Env):  # can extend from gym.Env
             grid_map[i] = True
         return grid_map
     
-    # 还没实现！
+    # not finish yet
     def _gridmap_check(self):
         return True
 
@@ -1003,363 +1001,3 @@ class CrowdEnv(gym.Env):  # can extend from gym.Env
         return np.log(self._KDE(base_traj_list, target_traj, h))
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-class CrowdRenderEnv():  
-    def __init__(self, args):
-        super(CrowdRenderEnv, self).__init__()
-
-        self.time_interval = args.time_interval
-        self.trajectorys, self.frame_data, self.start_data, self.goal_data = self._load_dataset(args.dataset_path)
-        self.regions = args.regions
-        self.radius = args.radius
-        self.num_agents = len(self.trajectorys.keys())
-        self.frame_interval = args.frame_interval
-        self.map_size_bound = args.map_size_bound # [low_x, high_x, low_y, high_y]
-        self.with_last_speed = args.with_last_speed
-        self.observation_type = args.observation_type # 'radar' / 'graph'
-        self.entity_type = args.entity_type
-        if self.observation_type == 'graph':
-            self.graph_obs_past_len = args.graph_obs_past_len
-            self.padd_to_number = args.padd_to_number
-            self.graph_feature_len = args.graph_feature_len
-        
-    def render_segment(self, policy, start_frame, end_frame):
-        # validity check
-        assert start_frame>= 0 and start_frame%self.frame_interval==0
-        assert end_frame<=max(self.frame_data.keys()) and end_frame%self.frame_interval==0
-
-        # cut init frame
-        current_frame = self.frame_data[start_frame]
-        past_frames = {}
-        # save each agent's quit time
-        # agent_quit_frame = {}
-        # for id in present_agent:
-        #     agent_quit_frame[id] = self.trajectorys[id][-1][2]
-
-        # start render
-        dy_coll = 0
-
-        for frame_id in tqdm(range(start_frame, end_frame+1, self.frame_interval)):
-            # 获取在场行人
-            present_agent = self.frame_data[frame_id].keys()
-            # 添加新行人进当前帧, 删除旧行人
-            last_present_agent = list(current_frame.keys())
-            for id in present_agent:
-                if id not in last_present_agent:
-                    current_frame[id] = self.frame_data[frame_id][id]
-            for id in last_present_agent:
-                if id not in present_agent:
-                    del current_frame[id]
-            # 压栈
-            past_frames[frame_id] = current_frame
-            # draw
-            dy_coll += self.draw_one_frame(frame_id, current_frame)
-            # generate next frame
-            next_frame = {}
-            for id in present_agent:
-                current_position = np.array([current_frame[id][0], current_frame[id][1]])
-
-                state = self._get_graph_observation(id, frame_id, current_position, current_frame, past_frames)
-                action = policy.select_action(state)
-
-                dx = action[0]*self.time_interval
-                dy = action[1]*self.time_interval
-                new_position = current_position + np.array([dx, dy])
-
-                # collision check
-
-                next_frame[id] = new_position
-            current_frame = next_frame
-        print(f'Dynamic Collisions: {dy_coll}')
-        self.generate_gif('dynamic')
-        # draw the old to compare
-        sta_coll = 0
-        for frame_id in tqdm(range(start_frame, end_frame+1, self.frame_interval)):
-            coll = self.draw_one_frame(frame_id, self.frame_data[frame_id])
-            sta_coll += coll
-        print(f'Static Collisions: {sta_coll}')
-        self.generate_gif('static')
-
-
-
-    def draw_one_frame(self, frame_id, current_frame):
-        # 创建 Pygame Surface 对象
-        x_shift, y_shift = 12, 15
-        scale = 10
-        screen_width, screen_height = 60*scale, 60*scale
-        screen = pygame.Surface((screen_width, screen_height))
-
-        screen.fill((255, 255, 255))  # clear Surface
-
-        collisions = 0
-
-        for person, value in current_frame.items():
-            agent_color = (62, 115, 158)
-            # check collision
-            for other, opos in current_frame.items():
-                if person != other:
-                    dist = np.linalg.norm(np.array([value[0], value[1]]) - np.array([opos[0], opos[1]]))
-                    if dist < 1.0:
-                        agent_color = (255, 0, 0)
-                        collisions += 1
-            # draw the agent
-            agent_x, agent_y = value[0]+x_shift, value[1]+y_shift
-            pygame.draw.circle(screen, agent_color, (int(agent_x*scale), int(agent_y*scale)), 0.5*scale)
-
-        # 保存为图片文件
-        pygame.image.save(screen, f'./gym_render/temp_pic/{int(frame_id/self.frame_interval)}.png')
-
-        return collisions
-
-    def generate_gif(self, file_name):
-        # draw gif
-        pic_list = sorted(os.listdir('./gym_render/temp_pic/'),key = lambda x:int(x[:-4]))
-        with imageio.get_writer(uri=f'./gym_render/render_all/{file_name}.gif', mode='i', fps=15) as writer:
-            for pic in pic_list:
-                writer.append_data(imageio.imread('./gym_render/temp_pic/'+pic))
-        # delete all pictures
-        for pic in pic_list:
-            os.remove('./gym_render/temp_pic/'+pic)
-
-
-    def _get_graph_observation(self, agent_id, frame_id, current_position, current_frame, past_frames):
-        X=[]
-        cluster=[]
-        edge_index=[[],[]]
-
-        # goal vector
-        dx, dy= self.goal_data[agent_id][0]-current_position[0], self.goal_data[agent_id][1]-current_position[1]
-        if dx!=0 or dy!=0: # 归一化
-            vx,vy=dx/math.sqrt(dx**2+dy**2),dy/math.sqrt(dx**2+dy**2)
-            goal=[vx,vy]
-        else:
-            goal=[0,0]
-
-        # 添加自身上一时刻速度
-        if len(past_frames.keys()) == 1 or (agent_id not in  past_frames[frame_id-self.frame_interval].keys()):
-            last_speed = [0, 0]
-        else:
-            last_speed = (current_position - past_frames[frame_id-self.frame_interval][agent_id])/self.time_interval
-
-        # agent当前位置
-        x1=current_position[0]
-        y1=current_position[1]
-
-        # Insert target person
-        if len(past_frames.keys()) == 1 or (agent_id not in  past_frames[frame_id-self.frame_interval].keys()):
-            last_x = 0
-            last_y = 0
-        else:
-            last_x = past_frames[frame_id-self.frame_interval][agent_id][0]-x1
-            last_y = past_frames[frame_id-self.frame_interval][agent_id][1]-y1
-        X.append([last_x, last_y, 0, 0, 0])
-        sum_ped = 0
-        cluster.append(sum_ped)
-        sum_ped += 1
-        # Insert other person
-        for other,ovalue in current_frame.items():
-            if other!=agent_id:
-                x2=ovalue[0]
-                y2=ovalue[1]
-                dis=math.sqrt((x1-x2)**2+(y1-y2)**2)
-                if dis<self.radius:  # 只考虑当前半径范围内的行人
-                    # 每个行人最多取past_len个历史点向量
-                    cur_frame_id = frame_id
-                    len_nodes=0
-                    while_flag=0   # 一个不会让聚类编号凭空增加的flag
-                    while(cur_frame_id>=self.frame_interval and len_nodes<self.graph_obs_past_len and  len(past_frames.keys())>1 and (other in past_frames[cur_frame_id-self.frame_interval])):
-                        start_x=past_frames[cur_frame_id-self.frame_interval][other][0]-x1
-                        start_y=past_frames[cur_frame_id-self.frame_interval][other][1]-y1
-                        end_x=past_frames[cur_frame_id][other][0]-x1
-                        end_y=past_frames[cur_frame_id][other][1]-y1
-
-                        # 计算当前历史向量终点的相对agent的前后,前为1，后为0
-                        front_flag=1
-                        if len(past_frames.keys()) == 1:
-                            last_v = goal
-                        else:
-                            last_v = last_speed
-                        ang = self._clockwise_angle(last_v, [end_x,end_y])
-                        if ang>=90 and ang<=270:
-                            front_flag=0
-
-                        X.append([start_x,start_y,end_x,end_y,front_flag])
-                        cluster.append(sum_ped)
-                        while_flag=1
-
-                        if len_nodes>0:
-                            link_start=len(X)-1
-                            edge_index[0].append(link_start)
-                            edge_index[1].append(link_start-1)
-
-                        len_nodes += 1
-                        cur_frame_id -= self.frame_interval
-                    if while_flag == 1:
-                        sum_ped += 1
-        assert len(cluster)!=0
-        X = np.array(X)
-        cluster = np.array(cluster)
-        valid_len = cluster.max()+1
-        X = np.vstack([X, np.zeros((self.padd_to_number - cluster.max()-1, self.graph_feature_len), dtype=X.dtype)])
-        cluster = np.hstack([cluster, np.arange(cluster.max()+1, self.padd_to_number)])
-        g_data = GraphData(
-            x=torch.tensor(X,dtype=torch.float32),
-            cluster=torch.tensor(cluster,dtype=torch.int64),
-            edge_index=torch.tensor(edge_index,dtype=torch.int64),
-            valid_len=torch.tensor([valid_len]),
-            time_step_len=torch.tensor([self.padd_to_number]),
-            goal=torch.tensor(goal,dtype=torch.float32),
-            last_speed=torch.tensor(last_speed,dtype=torch.float32)
-        )
-        return g_data
-    
-    # clockwise angle from v1 to v2
-    def _clockwise_angle(self,v1, v2):
-        x1,y1 = v1
-        x2,y2 = v2
-        dot = x1*x2+y1*y2
-        det = x1*y2-y1*x2
-        theta = np.arctan2(det, dot)
-        theta = theta if theta>0 else 2*np.pi+theta
-        theta = theta*180/np.pi
-        return theta
-
-    def _load_dataset(self, dataset_path):
-        # The dataset is organized as per person trajectory dict as form of pickle
-        # fist load that then transfer to per frame form
-        # trajectorys contains the trajectory of every pedestrian, each waypoint is [x,y,frame_number]
-        with open(dataset_path, 'rb') as f:
-            trajectorys = pickle.load(f)
-
-        # delet pedestrians with only one or two waypoints
-        for id in list(trajectorys.keys()):
-            if len(trajectorys[id]) < 3:
-                del trajectorys[id]
-        print(f'dataset pedestrians:{len(trajectorys)}')
-
-        # calculate last speed and next speed
-        for traj in trajectorys.values():
-            len_traj = len(traj)
-            for i in range(1, len_traj - 1):
-                past_v_x = (traj[i][0] - traj[i - 1][0]) / self.time_interval
-                past_v_y = (traj[i][1] - traj[i - 1][1]) / self.time_interval
-                future_v_x = (traj[i + 1][0] - traj[i][0]) / self.time_interval
-                future_v_y = (traj[i + 1][1] - traj[i][1]) / self.time_interval
-                traj[i].append(past_v_x)
-                traj[i].append(past_v_y)
-                traj[i].append(future_v_x)
-                traj[i].append(future_v_y)
-            traj[0].append(traj[1][3])
-            traj[0].append(traj[1][4])
-            traj[0].append(traj[1][3])
-            traj[0].append(traj[1][4])
-            traj[len_traj - 1].append(traj[len_traj - 2][5])
-            traj[len_traj - 1].append(traj[len_traj - 2][6])
-            traj[len_traj - 1].append(traj[len_traj - 2][5])
-            traj[len_traj - 1].append(traj[len_traj - 2][6])
-
-        # transfer to per frame dict
-        # frame_data: key is frame id, value is all the pedestrains' waypoints
-        frame_data = {}
-        for id in list(trajectorys.keys()):
-            for waypoint in trajectorys[id]:
-                frame_data[waypoint[2]] = {}
-        for id in list(trajectorys.keys()):
-            for waypoint in trajectorys[id]:
-                frame_data[waypoint[2]][id] = np.array([waypoint[0], waypoint[1]])
-                                               # waypoint[3], waypoint[4], waypoint[5],waypoint[6]]
-
-        # save each pedestrian's start position
-        start_data={}
-        for id in list(trajectorys.keys()):
-            info=trajectorys[id][0]
-            start_data[id]=[info[0],info[1]]
-
-        # save each pedestrian's goal
-        goal_data={}
-        for id in list(trajectorys.keys()):
-            info=trajectorys[id][-1]
-            goal_data[id]=[info[0],info[1]]
-
-        return trajectorys, frame_data, start_data, goal_data
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='args for SocialGAIL')
-    parser.add_argument('--env_name',default="CrowdEnv")
-    parser.add_argument('--dataset_path',default="./datasets/gc_interpolated_trajectory.pkl")
-    parser.add_argument('--frame_interval',default=10)
-    parser.add_argument('--time_interval',default=0.4)
-    parser.add_argument('--regions',default=16)
-    parser.add_argument('--radius',default=6.0)
-    parser.add_argument('--map_size_bound',default=[-10,40,-20,50])         # [low_x, high_x, low_y, high_y] (int)
-    parser.add_argument('--with_last_speed',default=True)
-    parser.add_argument('--entity_type',default=False)
-    parser.add_argument('--observation_type',default='radar')               # 'radar' / 'graph'
-    parser.add_argument('--graph_obs_past_len',default=5)
-    parser.add_argument('--padd_to_number',default=60)                      # the max number of people in radius to form a mini-batch
-    parser.add_argument('--graph_feature_len',default=5)
-    parser.add_argument('--output_len',default=2)
-    # training hyperparamater
-    parser.add_argument('--max_timesteps',default=800)                      # max time steps in one episode
-    parser.add_argument('--total_steps',default=8e5)                        # int(1.6e6) 800000
-    parser.add_argument('--training_interval',default=2048)                  # 2048
-    parser.add_argument('--n_iter',default=10)                               # updates per epoch    # 10
-    parser.add_argument('--batch_size',default=64)                          # num of transitions sampled from expert    # 64
-    parser.add_argument('--action_std_decay_rate',default=0.05)             # linearly decay action_std (action_std = action_std - action_std_decay_rate)
-    parser.add_argument('--min_action_std',default=0.1)                     # minimum action_std (stop decay after action_std <= min_action_std)
-    parser.add_argument('--action_std_decay_freq',default=int(2.5e5))       # action_std decay frequency (in num timesteps)
-    parser.add_argument('--pretrained_model_path',default='./pretrained_models/GC_GNN.pt')
-    args = parser.parse_args()
-
-
-    # 用于检查自定义的gym环境
-    # 如果你安装了pytorch，则使用上面的，如果你安装了tensorflow，则使用from stable_baselines.common.env_checker import check_env
-    from stable_baselines3.common.env_checker import check_env 
-    env = CrowdEnv(args)
-    check_env(env)
-
-
-
-
-    # from stable_baselines3 import PPO
-    # env = CrowdEnv(args)
-    
-    # model = PPO("MlpPolicy", env, verbose=1,tensorboard_log="./PPO/")
-    # model.learn(total_timesteps=5000000)   # 400000
-
-    # obs = env.reset()
-    # # 验证十次
-    # for i in range(400):
-    #     action, state = model.predict(observation=obs)
-    #     obs, reward, done, info = env.step(action)
-    #     env.render(i)
-    #     if done:
-    #         obs = env.reset()
-    # env.draw_gif()
